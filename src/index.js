@@ -202,14 +202,32 @@ client.on('interactionCreate', async (interaction) => {
 
   // Ticket permissions
   const permissionOverwrites = [
-    {
-      id: guild.roles.everyone.id,
-      deny: [
-        PermissionFlagsBits.ViewChannel
-      ]
-    },
-    {
-      id: interaction.user.id,
+  {
+    id: guild.roles.everyone.id,
+    deny: [
+      PermissionFlagsBits.ViewChannel
+    ]
+  },
+  {
+    id: interaction.client.user.id,
+    allow: [
+      PermissionFlagsBits.ViewChannel,
+      PermissionFlagsBits.SendMessages,
+      PermissionFlagsBits.ReadMessageHistory,
+      PermissionFlagsBits.ManageChannels
+    ]
+  },
+  {
+    id: interaction.user.id,
+    allow: [
+      PermissionFlagsBits.ViewChannel,
+      PermissionFlagsBits.SendMessages,
+      PermissionFlagsBits.ReadMessageHistory,
+      PermissionFlagsBits.ManageChannels
+    ]
+  },
+  {
+    id: interaction.user.id,
       allow: [
         PermissionFlagsBits.ViewChannel,
         PermissionFlagsBits.SendMessages,
