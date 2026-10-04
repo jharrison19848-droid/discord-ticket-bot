@@ -1,51 +1,53 @@
 const fs = require('node:fs');
 const path = require('node:path');
-const Database = require('better-sqlite3');
 
 const dataDirectory = path.join(process.cwd(), 'data');
+const databaseFile = path.join(dataDirectory, 'database.json');
 
-fs.mkdirSync(dataDirectory, {
-  recursive: true
-});
-
-const db = new Database(
-  path.join(dataDirectory, 'tickets.db')
-);
+let database;
 
 function initializeDatabase() {
-  db.pragma('journal_mode = WAL');
+  fs.mkdirSync(dataDirectory, {
+    recursive: true
+  });
 
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS guild_config (
-      guild_id TEXT PRIMARY KEY,
-      staff_role_id TEXT,
-      ticket_category_id TEXT,
-      transcript_channel_id TEXT,
-      log_channel_id TEXT,
-      panel_channel_id TEXT,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  if (!fs.existsSync(databaseFile)) {
+    fs.writeFileSync(
+      databaseFile,
+      JSON.stringify(
+        {
+          guild_config: {},
+          tickets: [],
+          next_ticket_id: 1
+        },
+        null,
+        2
+      )
     );
+  }
 
-    CREATE TABLE IF NOT EXISTS tickets (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      guild_id TEXT NOT NULL,
-      channel_id TEXT UNIQUE,
-      creator_id TEXT NOT NULL,
-      category TEXT,
-      status TEXT NOT NULL DEFAULT 'open',
-      claimed_by TEXT,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      closed_at TEXT
-    );
-  `);
+  database = JSON.parse(
+    fs.readFileSync(databaseFile, 'utf8')
+  );
+}
+
+function saveDatabase() {
+  fs.writeFileSync(
+    databaseFile,
+    JSON.stringify(database, null, 2)
+  );
 }
 
 function getDatabase() {
-  return db;
+  return database;
+}
+
+function updateDatabase() {
+  saveDatabase();
 }
 
 module.exports = {
   initializeDatabase,
-  getDatabase
+  getDatabase,
+  updateDatabase
 };
