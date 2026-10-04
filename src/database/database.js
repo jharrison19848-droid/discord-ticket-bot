@@ -29,6 +29,21 @@ function initializeDatabase() {
   database = JSON.parse(
     fs.readFileSync(databaseFile, 'utf8')
   );
+
+  // Make sure older databases get the tickets array
+  if (!Array.isArray(database.tickets)) {
+    database.tickets = [];
+  }
+
+  if (!database.guild_config) {
+    database.guild_config = {};
+  }
+
+  if (!database.next_ticket_id) {
+    database.next_ticket_id = 1;
+  }
+
+  saveDatabase();
 }
 
 function saveDatabase() {
