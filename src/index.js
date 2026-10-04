@@ -169,7 +169,7 @@ client.on('interactionCreate', async (interaction) => {
       const closedTicketsChannel = guild.channels.cache.find(
         channel =>
           channel.type === ChannelType.GuildText &&
-          channel.name.toLowerCase() === 'closed-tickets'
+          channel.name.toLowerCase() === '🎫-closed-tickets'
       );
 
       // Post closure log
