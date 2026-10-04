@@ -15,7 +15,9 @@ const {
 } = require('discord.js');
 
 const {
-  initializeDatabase
+  initializeDatabase,
+  getDatabase,
+  updateDatabase
 } = require('./database/database');
 
 const client = new Client({
@@ -62,7 +64,10 @@ client.once('ready', async (readyClient) => {
 
     console.log('Slash commands registered successfully.');
   } catch (error) {
-    console.error('Failed to register slash commands:', error);
+    console.error(
+      'Failed to register slash commands:',
+      error
+    );
   }
 });
 
@@ -70,7 +75,9 @@ client.on('interactionCreate', async (interaction) => {
 
   // Slash commands
   if (interaction.isChatInputCommand()) {
-    const command = client.commands.get(interaction.commandName);
+    const command = client.commands.get(
+      interaction.commandName
+    );
 
     if (!command) return;
 
@@ -83,7 +90,8 @@ client.on('interactionCreate', async (interaction) => {
       );
 
       const message = {
-        content: 'Something went wrong while running that command.',
+        content:
+          'Something went wrong while running that command.',
         ephemeral: true
       };
 
@@ -100,13 +108,18 @@ client.on('interactionCreate', async (interaction) => {
   // Buttons
   if (!interaction.isButton()) return;
 
-  if (!interaction.customId.startsWith('ticket_')) return;
+  if (!interaction.customId.startsWith('ticket_')) {
+    return;
+  }
 
   // Close ticket
   if (interaction.customId === 'ticket_close') {
     const channel = interaction.channel;
 
-    if (!channel || channel.type !== ChannelType.GuildText) {
+    if (
+      !channel ||
+      channel.type !== ChannelType.GuildText
+    ) {
       return;
     }
 
@@ -122,15 +135,37 @@ client.on('interactionCreate', async (interaction) => {
 
     if (!isAdministrator && !isModerator) {
       await interaction.reply({
-        content: 'Only Administrators and Moderators can close tickets.',
+        content:
+          'Only Administrators and Moderators can close tickets.',
         ephemeral: true
       });
 
       return;
     }
 
+    // Record the ticket closure
+    const database = getDatabase();
+
+    const ticket = database.tickets.find(
+      ticket =>
+        ticket.channel_id === channel.id &&
+        !ticket.closed_at
+    );
+
+    if (ticket) {
+      ticket.closed_by = interaction.user.id;
+      ticket.closed_at = new Date().toISOString();
+
+      updateDatabase();
+
+      console.log(
+        `Ticket ${ticket.ticket_id} closed by ${interaction.user.tag}`
+      );
+    }
+
     await interaction.reply({
-      content: '🔒 This ticket will be closed in 5 seconds.'
+      content:
+        '🔒 This ticket will be closed in 5 seconds.'
     });
 
     setTimeout(async () => {
@@ -167,7 +202,8 @@ client.on('interactionCreate', async (interaction) => {
 
   if (!guild) {
     await interaction.reply({
-      content: 'Tickets can only be created inside a server.',
+      content:
+        'Tickets can only be created inside a server.',
       ephemeral: true
     });
 
@@ -183,12 +219,14 @@ client.on('interactionCreate', async (interaction) => {
   const existingTicket = guild.channels.cache.find(
     channel =>
       channel.type === ChannelType.GuildText &&
-      channel.topic === `ticket-owner:${interaction.user.id}`
+      channel.topic ===
+        `ticket-owner:${interaction.user.id}`
   );
 
   if (existingTicket) {
     await interaction.reply({
-      content: `You already have an open ticket: ${existingTicket}`,
+      content:
+        `You already have an open ticket: ${existingTicket}`,
       ephemeral: true
     });
 
@@ -196,38 +234,32 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // Generate ticket number
-  const ticketNumber = Date.now().toString().slice(-6);
+  const ticketNumber = Date.now()
+    .toString()
+    .slice(-6);
 
-  const channelName = `${ticketType}-${ticketNumber}`;
+  const channelName =
+    `${ticketType}-${ticketNumber}`;
 
   // Ticket permissions
   const permissionOverwrites = [
-  {
-    id: guild.roles.everyone.id,
-    deny: [
-      PermissionFlagsBits.ViewChannel
-    ]
-  },
-  {
-    id: interaction.client.user.id,
-    allow: [
-      PermissionFlagsBits.ViewChannel,
-      PermissionFlagsBits.SendMessages,
-      PermissionFlagsBits.ReadMessageHistory,
-      PermissionFlagsBits.ManageChannels
-    ]
-  },
-  {
-    id: interaction.user.id,
-    allow: [
-      PermissionFlagsBits.ViewChannel,
-      PermissionFlagsBits.SendMessages,
-      PermissionFlagsBits.ReadMessageHistory,
-      PermissionFlagsBits.ManageChannels
-    ]
-  },
-  {
-    id: interaction.user.id,
+    {
+      id: guild.roles.everyone.id,
+      deny: [
+        PermissionFlagsBits.ViewChannel
+      ]
+    },
+    {
+      id: interaction.client.user.id,
+      allow: [
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.SendMessages,
+        PermissionFlagsBits.ReadMessageHistory,
+        PermissionFlagsBits.ManageChannels
+      ]
+    },
+    {
+      id: interaction.user.id,
       allow: [
         PermissionFlagsBits.ViewChannel,
         PermissionFlagsBits.SendMessages,
@@ -253,9 +285,37 @@ client.on('interactionCreate', async (interaction) => {
   const ticketChannel = await guild.channels.create({
     name: channelName,
     type: ChannelType.GuildText,
-    topic: `ticket-owner:${interaction.user.id}`,
+    topic:
+      `ticket-owner:${interaction.user.id}`,
     permissionOverwrites
   });
+
+  // Record ticket creation
+  const database = getDatabase();
+
+  const ticketId = database.next_ticket_id;
+
+  database.tickets.push({
+    ticket_id: ticketId,
+    guild_id: guild.id,
+    channel_id: ticketChannel.id,
+    channel_name: ticketChannel.name,
+    user_id: interaction.user.id,
+    user_tag: interaction.user.tag,
+    type: ticketType,
+    type_name: typeName,
+    opened_at: new Date().toISOString(),
+    closed_by: null,
+    closed_at: null
+  });
+
+  database.next_ticket_id++;
+
+  updateDatabase();
+
+  console.log(
+    `Ticket #${ticketId} created by ${interaction.user.tag}`
+  );
 
   // Ticket welcome message
   const embed = new EmbedBuilder()
@@ -263,7 +323,8 @@ client.on('interactionCreate', async (interaction) => {
     .setDescription(
       `Welcome ${interaction.user}!\n\n` +
       `A member of the staff team will be with you shortly.\n\n` +
-      `**Ticket Type:** ${typeName}`
+      `**Ticket Type:** ${typeName}\n` +
+      `**Ticket ID:** #${ticketId}`
     );
 
   // Close button
@@ -278,14 +339,20 @@ client.on('interactionCreate', async (interaction) => {
 
   // Send ticket message
   await ticketChannel.send({
-    content: `${interaction.user}${moderatorRole ? ` <@&${moderatorRole.id}>` : ''}`,
+    content:
+      `${interaction.user}${
+        moderatorRole
+          ? ` <@&${moderatorRole.id}>`
+          : ''
+      }`,
     embeds: [embed],
     components: [closeButton]
   });
 
   // Tell user the ticket was created
   await interaction.reply({
-    content: `Your ticket has been created: ${ticketChannel}`,
+    content:
+      `Your ticket has been created: ${ticketChannel}`,
     ephemeral: true
   });
 });
