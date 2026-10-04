@@ -11,7 +11,8 @@ const {
   EmbedBuilder,
   ActionRowBuilder,
   ButtonBuilder,
-  ButtonStyle
+  ButtonStyle,
+  AttachmentBuilder
 } = require('discord.js');
 
 const {
@@ -22,7 +23,9 @@ const {
 
 const client = new Client({
   intents: [
-    GatewayIntentBits.Guilds
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent
   ]
 });
 
@@ -145,7 +148,7 @@ client.on('interactionCreate', async (interaction) => {
       return;
     }
 
-    // Record the ticket closure
+    // Find ticket record
     const database = getDatabase();
 
     const ticket = database.tickets.find(
@@ -155,9 +158,102 @@ client.on('interactionCreate', async (interaction) => {
     );
 
     if (ticket) {
-      ticket.closed_by = interaction.user.id;
-      ticket.closed_by_tag = interaction.user.tag;
-      ticket.closed_at = new Date().toISOString();
+
+      // Fetch ticket messages
+      let messages = [];
+      let lastMessageId;
+
+      while (true) {
+        const fetched = await channel.messages.fetch({
+          limit: 100,
+          ...(lastMessageId
+            ? { before: lastMessageId }
+            : {})
+        });
+
+        if (fetched.size === 0) {
+          break;
+        }
+
+        messages.push(
+          ...fetched.values()
+        );
+
+        lastMessageId =
+          fetched.last().id;
+
+        if (fetched.size < 100) {
+          break;
+        }
+      }
+
+      // Sort oldest to newest
+      messages.sort(
+        (a, b) =>
+          a.createdTimestamp -
+          b.createdTimestamp
+      );
+
+      // Keep only user/staff messages
+      const transcriptMessages =
+        messages.filter(message => {
+          if (message.author.bot) {
+            return false;
+          }
+
+          return true;
+        });
+
+      let transcript =
+        `Ticket #${ticket.ticket_id}\n` +
+        `Type: ${ticket.type_name}\n` +
+        `Opened by: ${ticket.user_tag}\n` +
+        `Closed by: ${interaction.user.tag}\n` +
+        `Opened: ${ticket.opened_at}\n` +
+        `Closed: ${new Date().toISOString()}\n` +
+        `\n========================================\n` +
+        `TRANSCRIPT\n` +
+        `========================================\n\n`;
+
+      for (const message of transcriptMessages) {
+        const timestamp =
+          new Date(
+            message.createdTimestamp
+          ).toISOString();
+
+        transcript +=
+          `[${timestamp}] ${message.author.tag}:\n`;
+
+        if (message.content) {
+          transcript +=
+            `${message.content}\n`;
+        }
+
+        if (message.attachments.size > 0) {
+          for (
+            const attachment
+            of message.attachments.values()
+          ) {
+            transcript +=
+              `[Attachment: ${attachment.url}]\n`;
+          }
+        }
+
+        transcript += '\n';
+      }
+
+      const transcriptFile =
+        Buffer.from(transcript, 'utf8');
+
+      // Update database
+      ticket.closed_by =
+        interaction.user.id;
+
+      ticket.closed_by_tag =
+        interaction.user.tag;
+
+      ticket.closed_at =
+        new Date().toISOString();
 
       updateDatabase();
 
@@ -165,61 +261,84 @@ client.on('interactionCreate', async (interaction) => {
         `Ticket #${ticket.ticket_id} closed by ${interaction.user.tag}`
       );
 
-      // Find the Closed Tickets channel
-      const closedTicketsChannel = guild.channels.cache.find(
-        channel =>
-          channel.type === ChannelType.GuildText &&
-          channel.name.toLowerCase() === '🎫-closed-tickets'
-      );
+      // Find Closed Tickets channel
+      const closedTicketsChannel =
+        guild.channels.cache.find(
+          channel =>
+            channel.type === ChannelType.GuildText &&
+            channel.name.toLowerCase() ===
+              '🎫-closed-tickets'
+        );
 
-      // Post closure log
       if (closedTicketsChannel) {
-        const openedTime = Math.floor(
-          new Date(ticket.opened_at).getTime() / 1000
-        );
+        const openedTime =
+          Math.floor(
+            new Date(
+              ticket.opened_at
+            ).getTime() / 1000
+          );
 
-        const closedTime = Math.floor(
-          new Date(ticket.closed_at).getTime() / 1000
-        );
+        const closedTime =
+          Math.floor(
+            new Date(
+              ticket.closed_at
+            ).getTime() / 1000
+          );
 
-        const logEmbed = new EmbedBuilder()
-          .setTitle('🔒 Ticket Closed')
-          .addFields(
-            {
-              name: 'Ticket',
-              value: `#${ticket.ticket_id}`,
-              inline: true
-            },
-            {
-              name: 'Type',
-              value: ticket.type_name,
-              inline: true
-            },
-            {
-              name: 'Opened By',
-              value: `<@${ticket.user_id}>`,
-              inline: true
-            },
-            {
-              name: 'Closed By',
-              value: `<@${interaction.user.id}>`,
-              inline: true
-            },
-            {
-              name: 'Opened',
-              value: `<t:${openedTime}:F>`,
-              inline: false
-            },
-            {
-              name: 'Closed',
-              value: `<t:${closedTime}:F>`,
-              inline: false
-            }
-          )
-          .setTimestamp();
+        const logEmbed =
+          new EmbedBuilder()
+            .setTitle('🔒 Ticket Closed')
+            .addFields(
+              {
+                name: 'Ticket',
+                value:
+                  `#${ticket.ticket_id}`,
+                inline: true
+              },
+              {
+                name: 'Type',
+                value:
+                  ticket.type_name,
+                inline: true
+              },
+              {
+                name: 'Opened By',
+                value:
+                  `<@${ticket.user_id}>`,
+                inline: true
+              },
+              {
+                name: 'Closed By',
+                value:
+                  `<@${interaction.user.id}>`,
+                inline: true
+              },
+              {
+                name: 'Opened',
+                value:
+                  `<t:${openedTime}:F>`,
+                inline: false
+              },
+              {
+                name: 'Closed',
+                value:
+                  `<t:${closedTime}:F>`,
+                inline: false
+              }
+            )
+            .setTimestamp();
 
         await closedTicketsChannel.send({
-          embeds: [logEmbed]
+          embeds: [logEmbed],
+          files: [
+            new AttachmentBuilder(
+              transcriptFile,
+              {
+                name:
+                  `ticket-${ticket.ticket_id}-transcript.txt`
+              }
+            )
+          ]
         });
       }
     }
@@ -244,10 +363,11 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // Determine ticket type
-  const ticketType = interaction.customId.replace(
-    'ticket_',
-    ''
-  );
+  const ticketType =
+    interaction.customId.replace(
+      'ticket_',
+      ''
+    );
 
   const typeNames = {
     support: 'Support',
@@ -255,11 +375,13 @@ client.on('interactionCreate', async (interaction) => {
     other: 'Other'
   };
 
-  const typeName = typeNames[ticketType];
+  const typeName =
+    typeNames[ticketType];
 
   if (!typeName) return;
 
-  const guild = interaction.guild;
+  const guild =
+    interaction.guild;
 
   if (!guild) {
     await interaction.reply({
@@ -272,17 +394,21 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // Find Moderator role
-  const moderatorRole = guild.roles.cache.find(
-    role => role.name === 'Moderator'
-  );
+  const moderatorRole =
+    guild.roles.cache.find(
+      role =>
+        role.name === 'Moderator'
+    );
 
   // Prevent multiple open tickets
-  const existingTicket = guild.channels.cache.find(
-    channel =>
-      channel.type === ChannelType.GuildText &&
-      channel.topic ===
-        `ticket-owner:${interaction.user.id}`
-  );
+  const existingTicket =
+    guild.channels.cache.find(
+      channel =>
+        channel.type ===
+          ChannelType.GuildText &&
+        channel.topic ===
+          `ticket-owner:${interaction.user.id}`
+    );
 
   if (existingTicket) {
     await interaction.reply({
@@ -295,9 +421,10 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // Generate ticket number
-  const ticketNumber = Date.now()
-    .toString()
-    .slice(-6);
+  const ticketNumber =
+    Date.now()
+      .toString()
+      .slice(-6);
 
   const channelName =
     `${ticketType}-${ticketNumber}`;
@@ -305,13 +432,15 @@ client.on('interactionCreate', async (interaction) => {
   // Ticket permissions
   const permissionOverwrites = [
     {
-      id: guild.roles.everyone.id,
+      id:
+        guild.roles.everyone.id,
       deny: [
         PermissionFlagsBits.ViewChannel
       ]
     },
     {
-      id: interaction.client.user.id,
+      id:
+        interaction.client.user.id,
       allow: [
         PermissionFlagsBits.ViewChannel,
         PermissionFlagsBits.SendMessages,
@@ -320,7 +449,8 @@ client.on('interactionCreate', async (interaction) => {
       ]
     },
     {
-      id: interaction.user.id,
+      id:
+        interaction.user.id,
       allow: [
         PermissionFlagsBits.ViewChannel,
         PermissionFlagsBits.SendMessages,
@@ -343,31 +473,43 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // Create ticket channel
-  const ticketChannel = await guild.channels.create({
-    name: channelName,
-    type: ChannelType.GuildText,
-    topic:
-      `ticket-owner:${interaction.user.id}`,
-    permissionOverwrites
-  });
+  const ticketChannel =
+    await guild.channels.create({
+      name: channelName,
+      type: ChannelType.GuildText,
+      topic:
+        `ticket-owner:${interaction.user.id}`,
+      permissionOverwrites
+    });
 
   // Record ticket creation
-  const database = getDatabase();
+  const database =
+    getDatabase();
 
-  const ticketId = database.next_ticket_id;
+  const ticketId =
+    database.next_ticket_id;
 
   database.tickets.push({
     ticket_id: ticketId,
     guild_id: guild.id,
-    channel_id: ticketChannel.id,
-    channel_name: ticketChannel.name,
-    user_id: interaction.user.id,
-    user_tag: interaction.user.tag,
-    type: ticketType,
-    type_name: typeName,
-    opened_at: new Date().toISOString(),
-    closed_by: null,
-    closed_at: null
+    channel_id:
+      ticketChannel.id,
+    channel_name:
+      ticketChannel.name,
+    user_id:
+      interaction.user.id,
+    user_tag:
+      interaction.user.tag,
+    type:
+      ticketType,
+    type_name:
+      typeName,
+    opened_at:
+      new Date().toISOString(),
+    closed_by:
+      null,
+    closed_at:
+      null
   });
 
   database.next_ticket_id++;
@@ -379,24 +521,34 @@ client.on('interactionCreate', async (interaction) => {
   );
 
   // Ticket welcome message
-  const embed = new EmbedBuilder()
-    .setTitle(`🎫 ${typeName} Ticket`)
-    .setDescription(
-      `Welcome ${interaction.user}!\n\n` +
-      `A member of the staff team will be with you shortly.\n\n` +
-      `**Ticket Type:** ${typeName}\n` +
-      `**Ticket ID:** #${ticketId}`
-    );
+  const embed =
+    new EmbedBuilder()
+      .setTitle(
+        `🎫 ${typeName} Ticket`
+      )
+      .setDescription(
+        `Welcome ${interaction.user}!\n\n` +
+        `A member of the staff team will be with you shortly.\n\n` +
+        `**Ticket Type:** ${typeName}\n` +
+        `**Ticket ID:** #${ticketId}`
+      );
 
   // Close button
-  const closeButton = new ActionRowBuilder()
-    .addComponents(
-      new ButtonBuilder()
-        .setCustomId('ticket_close')
-        .setLabel('Close Ticket')
-        .setEmoji('🔒')
-        .setStyle(ButtonStyle.Danger)
-    );
+  const closeButton =
+    new ActionRowBuilder()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId(
+            'ticket_close'
+          )
+          .setLabel(
+            'Close Ticket'
+          )
+          .setEmoji('🔒')
+          .setStyle(
+            ButtonStyle.Danger
+          )
+      );
 
   // Send ticket message
   await ticketChannel.send({
@@ -407,7 +559,9 @@ client.on('interactionCreate', async (interaction) => {
           : ''
       }`,
     embeds: [embed],
-    components: [closeButton]
+    components: [
+      closeButton
+    ]
   });
 
   // Tell user the ticket was created
@@ -418,4 +572,6 @@ client.on('interactionCreate', async (interaction) => {
   });
 });
 
-client.login(process.env.DISCORD_TOKEN);
+client.login(
+  process.env.DISCORD_TOKEN
+);
