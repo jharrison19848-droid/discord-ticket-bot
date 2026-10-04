@@ -21,7 +21,8 @@ const client = new Client({
 client.commands = new Collection();
 
 const commands = [
-  require('./commands/ping')
+  require('./commands/ping'),
+  require('./commands/setup-tickets')
 ];
 
 for (const command of commands) {
