@@ -115,10 +115,12 @@ client.on('interactionCreate', async (interaction) => {
   // Close ticket
   if (interaction.customId === 'ticket_close') {
     const channel = interaction.channel;
+    const guild = interaction.guild;
 
     if (
       !channel ||
-      channel.type !== ChannelType.GuildText
+      channel.type !== ChannelType.GuildText ||
+      !guild
     ) {
       return;
     }
@@ -154,13 +156,72 @@ client.on('interactionCreate', async (interaction) => {
 
     if (ticket) {
       ticket.closed_by = interaction.user.id;
+      ticket.closed_by_tag = interaction.user.tag;
       ticket.closed_at = new Date().toISOString();
 
       updateDatabase();
 
       console.log(
-        `Ticket ${ticket.ticket_id} closed by ${interaction.user.tag}`
+        `Ticket #${ticket.ticket_id} closed by ${interaction.user.tag}`
       );
+
+      // Find the Closed Tickets channel
+      const closedTicketsChannel = guild.channels.cache.find(
+        channel =>
+          channel.type === ChannelType.GuildText &&
+          channel.name.toLowerCase() === 'closed-tickets'
+      );
+
+      // Post closure log
+      if (closedTicketsChannel) {
+        const openedTime = Math.floor(
+          new Date(ticket.opened_at).getTime() / 1000
+        );
+
+        const closedTime = Math.floor(
+          new Date(ticket.closed_at).getTime() / 1000
+        );
+
+        const logEmbed = new EmbedBuilder()
+          .setTitle('🔒 Ticket Closed')
+          .addFields(
+            {
+              name: 'Ticket',
+              value: `#${ticket.ticket_id}`,
+              inline: true
+            },
+            {
+              name: 'Type',
+              value: ticket.type_name,
+              inline: true
+            },
+            {
+              name: 'Opened By',
+              value: `<@${ticket.user_id}>`,
+              inline: true
+            },
+            {
+              name: 'Closed By',
+              value: `<@${interaction.user.id}>`,
+              inline: true
+            },
+            {
+              name: 'Opened',
+              value: `<t:${openedTime}:F>`,
+              inline: false
+            },
+            {
+              name: 'Closed',
+              value: `<t:${closedTime}:F>`,
+              inline: false
+            }
+          )
+          .setTimestamp();
+
+        await closedTicketsChannel.send({
+          embeds: [logEmbed]
+        });
+      }
     }
 
     await interaction.reply({
