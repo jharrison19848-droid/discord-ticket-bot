@@ -3,7 +3,9 @@ require('dotenv').config();
 const {
   Client,
   GatewayIntentBits,
-  Collection
+  Collection,
+  REST,
+  Routes
 } = require('discord.js');
 
 const {
@@ -28,9 +30,33 @@ for (const command of commands) {
 
 initializeDatabase();
 
-client.once('ready', (readyClient) => {
+client.once('ready', async (readyClient) => {
   console.log(`Logged in as ${readyClient.user.tag}`);
   console.log(`Serving ${readyClient.guilds.cache.size} server(s).`);
+
+  try {
+    const rest = new REST({
+      version: '10'
+    }).setToken(process.env.DISCORD_TOKEN);
+
+    const commandData = commands.map(command =>
+      command.data.toJSON()
+    );
+
+    await rest.put(
+      Routes.applicationGuildCommands(
+        process.env.CLIENT_ID,
+        process.env.GUILD_ID
+      ),
+      {
+        body: commandData
+      }
+    );
+
+    console.log('Slash commands registered successfully.');
+  } catch (error) {
+    console.error('Failed to register slash commands:', error);
+  }
 });
 
 client.on('interactionCreate', async (interaction) => {
