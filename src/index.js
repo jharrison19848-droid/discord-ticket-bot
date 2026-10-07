@@ -47,9 +47,8 @@ for (const command of commands) {
 initializeDatabase();
 
 client.once('ready', async (readyClient) => {
-  console.log(`Logged in as ${readyClient.user.tag}`);
-  console.log(`Serving ${readyClient.guilds.cache.size} server(s).`);
-
+  console.log('Logged in as ' + readyClient.user.tag);
+  console.log('Serving ' + readyClient.guilds.cache.size + ' server(s).');
   try {
     const rest = new REST({
       version: '10'
