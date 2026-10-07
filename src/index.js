@@ -1,4 +1,3 @@
-
 require('dotenv').config();
 
 const {
@@ -1212,4 +1211,3 @@ client.on(
 client.login(
   process.env.DISCORD_TOKEN
 );
-```
