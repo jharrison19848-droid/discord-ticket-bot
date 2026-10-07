@@ -1,3 +1,4 @@
+```js
 require('dotenv').config();
 
 const {
@@ -14,7 +15,8 @@ const {
   ButtonStyle,
   ModalBuilder,
   TextInputBuilder,
-  TextInputStyle
+  TextInputStyle,
+  AttachmentBuilder
 } = require('discord.js');
 
 const {
@@ -78,7 +80,10 @@ client.once('ready', async (readyClient) => {
 
 client.on('interactionCreate', async (interaction) => {
 
-  // Slash commands
+  // ============================================================
+  // SLASH COMMANDS
+  // ============================================================
+
   if (interaction.isChatInputCommand()) {
     const command = client.commands.get(
       interaction.commandName
@@ -110,7 +115,10 @@ client.on('interactionCreate', async (interaction) => {
     return;
   }
 
-  // Streamer Live Request button
+  // ============================================================
+  // STREAMER LIVE REQUEST BUTTON
+  // ============================================================
+
   if (
     interaction.isButton() &&
     interaction.customId === 'streamer_live_request'
@@ -149,11 +157,26 @@ client.on('interactionCreate', async (interaction) => {
     return;
   }
 
-  // Streamer Live Request form submission
+  // ============================================================
+  // STREAMER LIVE REQUEST FORM SUBMISSION
+  // ============================================================
+
   if (
     interaction.isModalSubmit() &&
     interaction.customId === 'streamer_live_request_modal'
   ) {
+    const guild = interaction.guild;
+
+    if (!guild) {
+      await interaction.reply({
+        content:
+          'Streamer requests can only be submitted inside a server.',
+        ephemeral: true
+      });
+
+      return;
+    }
+
     const streamerName =
       interaction.fields.getTextInputValue(
         'streamer_name'
@@ -164,49 +187,360 @@ client.on('interactionCreate', async (interaction) => {
         'streamer_link'
       );
 
-    const embed = new EmbedBuilder()
-      .setTitle('🎥 Streamer Live Request')
-      .addFields(
-        {
-          name: 'Twitch Username',
-          value: streamerName,
-          inline: true
-        },
-        {
-          name: 'Twitch Channel',
-          value: streamerLink,
-          inline: false
-        },
-        {
-          name: 'Requested By',
-          value: `${interaction.user}`,
-          inline: false
-        }
-      )
-      .setTimestamp();
+    // Find Moderator role
+    const moderatorRole =
+      guild.roles.cache.find(
+        role =>
+          role.name === 'Moderator'
+      );
 
-    // Post the request in the channel where the form was submitted
-    await interaction.channel.send({
-      embeds: [embed]
+    // Prevent multiple open streamer requests
+    const existingRequest =
+      guild.channels.cache.find(
+        channel =>
+          channel.type === ChannelType.GuildText &&
+          channel.topic ===
+            `streamer-request-owner:${interaction.user.id}`
+      );
+
+    if (existingRequest) {
+      await interaction.reply({
+        content:
+          `You already have an open streamer request: ${existingRequest}`,
+        ephemeral: true
+      });
+
+      return;
+    }
+
+    // Generate request number
+    const requestNumber =
+      Date.now()
+        .toString()
+        .slice(-6);
+
+    const channelName =
+      `streamer-request-${requestNumber}`;
+
+    // Private request permissions
+    const permissionOverwrites = [
+      {
+        id:
+          guild.roles.everyone.id,
+        deny: [
+          PermissionFlagsBits.ViewChannel
+        ]
+      },
+      {
+        id:
+          interaction.client.user.id,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.ReadMessageHistory,
+          PermissionFlagsBits.ManageChannels
+        ]
+      },
+      {
+        id:
+          interaction.user.id,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.ReadMessageHistory
+        ]
+      }
+    ];
+
+    // Moderator access
+    if (moderatorRole) {
+      permissionOverwrites.push({
+        id: moderatorRole.id,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.ReadMessageHistory,
+          PermissionFlagsBits.ManageChannels
+        ]
+      });
+    }
+
+    // Create private request channel
+    const requestChannel =
+      await guild.channels.create({
+        name: channelName,
+        type: ChannelType.GuildText,
+        topic:
+          `streamer-request-owner:${interaction.user.id}`,
+        permissionOverwrites
+      });
+
+    // Request embed
+    const requestEmbed =
+      new EmbedBuilder()
+        .setTitle('🎥 Streamer Live Request')
+        .setDescription(
+          `${interaction.user} has submitted a streamer live request.`
+        )
+        .addFields(
+          {
+            name: 'Twitch Username',
+            value: streamerName,
+            inline: true
+          },
+          {
+            name: 'Twitch Channel',
+            value: streamerLink,
+            inline: false
+          },
+          {
+            name: 'Requested By',
+            value: `${interaction.user}`,
+            inline: false
+          }
+        )
+        .setTimestamp();
+
+    // Completed button
+    const completedButton =
+      new ActionRowBuilder()
+        .addComponents(
+          new ButtonBuilder()
+            .setCustomId(
+              'streamer_request_completed'
+            )
+            .setLabel('Completed')
+            .setEmoji('✅')
+            .setStyle(ButtonStyle.Success)
+        );
+
+    await requestChannel.send({
+      content:
+        `${interaction.user}${
+          moderatorRole
+            ? ` <@&${moderatorRole.id}>`
+            : ''
+        }`,
+      embeds: [requestEmbed],
+      components: [
+        completedButton
+      ]
     });
 
     await interaction.reply({
       content:
-        '✅ Your streamer live request has been submitted.',
+        `✅ Your streamer live request has been submitted: ${requestChannel}`,
       ephemeral: true
     });
+
+    console.log(
+      `Streamer live request ${requestNumber} created by ${interaction.user.tag}`
+    );
 
     return;
   }
 
-  // Buttons
-  if (!interaction.isButton()) return;
+  // ============================================================
+  // STREAMER REQUEST COMPLETED
+  // ============================================================
+
+  if (
+    interaction.isButton() &&
+    interaction.customId ===
+      'streamer_request_completed'
+  ) {
+    const channel = interaction.channel;
+    const guild = interaction.guild;
+
+    if (
+      !channel ||
+      channel.type !== ChannelType.GuildText ||
+      !guild
+    ) {
+      return;
+    }
+
+    const member = interaction.member;
+
+    const isAdministrator =
+      member.permissions.has(
+        PermissionFlagsBits.Administrator
+      );
+
+    const isModerator =
+      member.roles.cache.some(
+        role =>
+          role.name === 'Moderator'
+      );
+
+    if (!isAdministrator && !isModerator) {
+      await interaction.reply({
+        content:
+          'Only Administrators and Moderators can complete streamer requests.',
+        ephemeral: true
+      });
+
+      return;
+    }
+
+    // Get requester from channel topic
+    const topic =
+      channel.topic || '';
+
+    const ownerMatch =
+      topic.match(
+        /^streamer-request-owner:(\d+)$/
+      );
+
+    if (!ownerMatch) {
+      await interaction.reply({
+        content:
+          'I could not determine who submitted this request.',
+        ephemeral: true
+      });
+
+      return;
+    }
+
+    const requesterId =
+      ownerMatch[1];
+
+    // Fetch messages from the request channel
+    const messages =
+      await channel.messages.fetch({
+        limit: 100
+      });
+
+    const requestMessage =
+      messages.find(
+        message =>
+          message.author.id ===
+          client.user.id &&
+          message.embeds.length > 0 &&
+          message.embeds[0].title ===
+            '🎥 Streamer Live Request'
+      );
+
+    // Find closed ticket channel
+    const closedTicketsChannel =
+      guild.channels.cache.find(
+        channel =>
+          channel.type ===
+            ChannelType.GuildText &&
+          channel.name.toLowerCase() ===
+            '🎫-closed-tickets'
+      );
+
+    if (!closedTicketsChannel) {
+      await interaction.reply({
+        content:
+          'I could not find the 🎫-closed-tickets channel.',
+        ephemeral: true
+      });
+
+      return;
+    }
+
+    // Build completion log
+    const logEmbed =
+      new EmbedBuilder()
+        .setTitle(
+          '✅ Streamer Live Request Completed'
+        )
+        .addFields(
+          {
+            name: 'Requested By',
+            value:
+              `<@${requesterId}>`,
+            inline: true
+          },
+          {
+            name: 'Completed By',
+            value:
+              `${interaction.user}`,
+            inline: true
+          }
+        )
+        .setTimestamp();
+
+    if (requestMessage) {
+      const originalEmbed =
+        requestMessage.embeds[0];
+
+      for (
+        const field
+        of originalEmbed.fields
+      ) {
+        logEmbed.addFields({
+          name: field.name,
+          value: field.value,
+          inline: field.inline
+        });
+      }
+    }
+
+    // Log completed request
+    await closedTicketsChannel.send({
+      embeds: [logEmbed]
+    });
+
+    // DM requester
+    try {
+      const requester =
+        await client.users.fetch(
+          requesterId
+        );
+
+      await requester.send(
+        'Your streamer live request has been completed. ✅'
+      );
+    } catch (error) {
+      console.log(
+        `Could not DM requester ${requesterId}. Their DMs may be closed.`
+      );
+    }
+
+    await interaction.reply({
+      content:
+        '✅ Request completed. It has been logged and the requester has been notified.',
+      ephemeral: true
+    });
+
+    console.log(
+      `Streamer live request completed by ${interaction.user.tag}`
+    );
+
+    // Delete request channel after 5 seconds
+    setTimeout(async () => {
+      try {
+        await channel.delete();
+      } catch (error) {
+        console.error(
+          'Failed to delete streamer request channel:',
+          error
+        );
+      }
+    }, 5000);
+
+    return;
+  }
+
+  // ============================================================
+  // REGULAR TICKET BUTTONS
+  // ============================================================
+
+  if (!interaction.isButton()) {
+    return;
+  }
 
   if (!interaction.customId.startsWith('ticket_')) {
     return;
   }
 
-  // Close ticket
+  // ============================================================
+  // CLOSE REGULAR TICKET
+  // ============================================================
+
   if (interaction.customId === 'ticket_close') {
     const channel = interaction.channel;
     const guild = interaction.guild;
@@ -221,13 +555,16 @@ client.on('interactionCreate', async (interaction) => {
 
     const member = interaction.member;
 
-    const isAdministrator = member.permissions.has(
-      PermissionFlagsBits.Administrator
-    );
+    const isAdministrator =
+      member.permissions.has(
+        PermissionFlagsBits.Administrator
+      );
 
-    const isModerator = member.roles.cache.some(
-      role => role.name === 'Moderator'
-    );
+    const isModerator =
+      member.roles.cache.some(
+        role =>
+          role.name === 'Moderator'
+      );
 
     if (!isAdministrator && !isModerator) {
       await interaction.reply({
@@ -240,13 +577,16 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     // Find ticket record
-    const database = getDatabase();
+    const database =
+      getDatabase();
 
-    const ticket = database.tickets.find(
-      ticket =>
-        ticket.channel_id === channel.id &&
-        !ticket.closed_at
-    );
+    const ticket =
+      database.tickets.find(
+        ticket =>
+          ticket.channel_id ===
+            channel.id &&
+          !ticket.closed_at
+      );
 
     if (ticket) {
 
@@ -255,12 +595,16 @@ client.on('interactionCreate', async (interaction) => {
       let lastMessageId;
 
       while (true) {
-        const fetched = await channel.messages.fetch({
-          limit: 100,
-          ...(lastMessageId
-            ? { before: lastMessageId }
-            : {})
-        });
+        const fetched =
+          await channel.messages.fetch({
+            limit: 100,
+            ...(lastMessageId
+              ? {
+                  before:
+                    lastMessageId
+                }
+              : {})
+          });
 
         if (fetched.size === 0) {
           break;
@@ -287,13 +631,10 @@ client.on('interactionCreate', async (interaction) => {
 
       // Keep only user/staff messages
       const transcriptMessages =
-        messages.filter(message => {
-          if (message.author.bot) {
-            return false;
-          }
-
-          return true;
-        });
+        messages.filter(
+          message =>
+            !message.author.bot
+        );
 
       let transcript =
         `Ticket #${ticket.ticket_id}\n` +
@@ -306,7 +647,10 @@ client.on('interactionCreate', async (interaction) => {
         `TRANSCRIPT\n` +
         `========================================\n\n`;
 
-      for (const message of transcriptMessages) {
+      for (
+        const message
+        of transcriptMessages
+      ) {
         const timestamp =
           new Date(
             message.createdTimestamp
@@ -320,7 +664,10 @@ client.on('interactionCreate', async (interaction) => {
             `${message.content}\n`;
         }
 
-        if (message.attachments.size > 0) {
+        if (
+          message.attachments.size >
+          0
+        ) {
           for (
             const attachment
             of message.attachments.values()
@@ -334,7 +681,10 @@ client.on('interactionCreate', async (interaction) => {
       }
 
       const transcriptFile =
-        Buffer.from(transcript, 'utf8');
+        Buffer.from(
+          transcript,
+          'utf8'
+        );
 
       // Update database
       ticket.closed_by =
@@ -356,7 +706,8 @@ client.on('interactionCreate', async (interaction) => {
       const closedTicketsChannel =
         guild.channels.cache.find(
           channel =>
-            channel.type === ChannelType.GuildText &&
+            channel.type ===
+              ChannelType.GuildText &&
             channel.name.toLowerCase() ===
               '🎫-closed-tickets'
         );
@@ -378,7 +729,9 @@ client.on('interactionCreate', async (interaction) => {
 
         const logEmbed =
           new EmbedBuilder()
-            .setTitle('🔒 Ticket Closed')
+            .setTitle(
+              '🔒 Ticket Closed'
+            )
             .addFields(
               {
                 name: 'Ticket',
@@ -422,7 +775,7 @@ client.on('interactionCreate', async (interaction) => {
         await closedTicketsChannel.send({
           embeds: [logEmbed],
           files: [
-            new (require('discord.js').AttachmentBuilder)(
+            new AttachmentBuilder(
               transcriptFile,
               {
                 name:
@@ -439,21 +792,27 @@ client.on('interactionCreate', async (interaction) => {
         '🔒 This ticket will be closed in 5 seconds.'
     });
 
-    setTimeout(async () => {
-      try {
-        await channel.delete();
-      } catch (error) {
-        console.error(
-          'Failed to delete ticket channel:',
-          error
-        );
-      }
-    }, 5000);
+    setTimeout(
+      async () => {
+        try {
+          await channel.delete();
+        } catch (error) {
+          console.error(
+            'Failed to delete ticket channel:',
+            error
+          );
+        }
+      },
+      5000
+    );
 
     return;
   }
 
-  // Determine ticket type
+  // ============================================================
+  // DETERMINE REGULAR TICKET TYPE
+  // ============================================================
+
   const ticketType =
     interaction.customId.replace(
       'ticket_',
@@ -469,7 +828,9 @@ client.on('interactionCreate', async (interaction) => {
   const typeName =
     typeNames[ticketType];
 
-  if (!typeName) return;
+  if (!typeName) {
+    return;
+  }
 
   const guild =
     interaction.guild;
@@ -581,8 +942,10 @@ client.on('interactionCreate', async (interaction) => {
     database.next_ticket_id;
 
   database.tickets.push({
-    ticket_id: ticketId,
-    guild_id: guild.id,
+    ticket_id:
+      ticketId,
+    guild_id:
+      guild.id,
     channel_id:
       ticketChannel.id,
     channel_name:
@@ -666,3 +1029,4 @@ client.on('interactionCreate', async (interaction) => {
 client.login(
   process.env.DISCORD_TOKEN
 );
+```
