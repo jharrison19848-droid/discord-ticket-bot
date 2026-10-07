@@ -22,7 +22,8 @@ module.exports = {
         'Need help? Choose the type of ticket you want to open below.\n\n' +
         '🛠️ **Support** — Get help with an issue.\n' +
         '🚨 **Reports** — Report a player or problem.\n' +
-        '📋 **Other** — Anything that does not fit the other categories.'
+        '📋 **Other** — Anything that does not fit the other categories.\n' +
+        '🎥 **Streamer Live Request** — Request that a streamer be added to the live notifications.'
       );
 
     const row = new ActionRowBuilder()
@@ -43,7 +44,13 @@ module.exports = {
           .setCustomId('ticket_other')
           .setLabel('Other')
           .setEmoji('📋')
-          .setStyle(ButtonStyle.Secondary)
+          .setStyle(ButtonStyle.Secondary),
+
+        new ButtonBuilder()
+          .setCustomId('streamer_live_request')
+          .setLabel('Streamer Live Request')
+          .setEmoji('🎥')
+          .setStyle(ButtonStyle.Success)
       );
 
     await interaction.channel.send({
