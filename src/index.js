@@ -12,7 +12,9 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  AttachmentBuilder
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle
 } = require('discord.js');
 
 const {
@@ -104,6 +106,95 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.reply(message);
       }
     }
+
+    return;
+  }
+
+  // Streamer Live Request button
+  if (
+    interaction.isButton() &&
+    interaction.customId === 'streamer_live_request'
+  ) {
+    const modal = new ModalBuilder()
+      .setCustomId('streamer_live_request_modal')
+      .setTitle('🎥 Streamer Live Request');
+
+    const streamerName = new TextInputBuilder()
+      .setCustomId('streamer_name')
+      .setLabel('Twitch Username')
+      .setPlaceholder('Example: mft_grim')
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true);
+
+    const streamerLink = new TextInputBuilder()
+      .setCustomId('streamer_link')
+      .setLabel('Twitch Channel Link')
+      .setPlaceholder('Example: https://twitch.tv/mft_grim')
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true);
+
+    const nameRow = new ActionRowBuilder()
+      .addComponents(streamerName);
+
+    const linkRow = new ActionRowBuilder()
+      .addComponents(streamerLink);
+
+    modal.addComponents(
+      nameRow,
+      linkRow
+    );
+
+    await interaction.showModal(modal);
+
+    return;
+  }
+
+  // Streamer Live Request form submission
+  if (
+    interaction.isModalSubmit() &&
+    interaction.customId === 'streamer_live_request_modal'
+  ) {
+    const streamerName =
+      interaction.fields.getTextInputValue(
+        'streamer_name'
+      );
+
+    const streamerLink =
+      interaction.fields.getTextInputValue(
+        'streamer_link'
+      );
+
+    const embed = new EmbedBuilder()
+      .setTitle('🎥 Streamer Live Request')
+      .addFields(
+        {
+          name: 'Twitch Username',
+          value: streamerName,
+          inline: true
+        },
+        {
+          name: 'Twitch Channel',
+          value: streamerLink,
+          inline: false
+        },
+        {
+          name: 'Requested By',
+          value: `${interaction.user}`,
+          inline: false
+        }
+      )
+      .setTimestamp();
+
+    // Post the request in the channel where the form was submitted
+    await interaction.channel.send({
+      embeds: [embed]
+    });
+
+    await interaction.reply({
+      content:
+        '✅ Your streamer live request has been submitted.',
+      ephemeral: true
+    });
 
     return;
   }
@@ -331,7 +422,7 @@ client.on('interactionCreate', async (interaction) => {
         await closedTicketsChannel.send({
           embeds: [logEmbed],
           files: [
-            new AttachmentBuilder(
+            new (require('discord.js').AttachmentBuilder)(
               transcriptFile,
               {
                 name:
